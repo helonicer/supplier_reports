@@ -1,6 +1,5 @@
 import os,sys
 from supplier_reports.python_script_common import set_logging, trace_call, info
-from munch import Munch
 from supplier_reports import conf as g
 import logging
 from openpyxl import load_workbook

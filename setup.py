@@ -4,7 +4,10 @@ from setuptools import setup,find_packages
 
 _INSTALL_REQUIRES = [
     # for the testing framework itself
-    "munch",
+    "flask",
+    "confetti",
+    "openpyxl",
+    "unicodecsv"
 ]
 
 
