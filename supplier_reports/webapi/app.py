@@ -4,9 +4,15 @@ import os
 from supplier_reports import conf as g
 from supplier_reports.gen_reports import gen_reports
 import flask
+from werkzeug.debug import DebuggedApplication
 
 
 app = Flask("webapi", static_url_path='')
+
+if g.config.root.debug is True:
+    app.debug = True
+    app.wsgi_app = DebuggedApplication(app.wsgi_app, evalex=True)
+
 
 class HtmlPage(object):
     template = """<!doctype html>

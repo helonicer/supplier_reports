@@ -37,9 +37,8 @@ def process_config():
     parser, (options, args) = get_opts()
     if options.pdb:
         sys.excepthook = info
-    app_path=os.path.dirname(os.path.abspath(__file__))
-    set_logging(app_name="supplier_reports", app_path=app_path, verbose=options.verbose, file_handler=True)
-    g.config.extend(dict(options=vars(options),args=args,app_path=app_path, reports_dir = os.path.join(app_path,"reports")))
+    set_logging(app_name="supplier_reports", app_path=g.config.root.app_path, verbose=options.verbose, file_handler=True)
+    g.config.extend(dict(options=vars(options),args=args))
     return parser
 
 
