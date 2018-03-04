@@ -121,6 +121,9 @@ class SimpleSchemaValidator(object):
                 raise PrimaryKeyError("key_not_in_data: {}".format(key))
             if not data_dict[key]:
                 raise PrimaryKeyError("key_should_not_be_empty: {}".format(data_dict[key]))
+            if data_dict[key] != data_dict[key].rstrip():
+                raise PrimaryKeyError("key_should_not_end_with_hidden_chars: {}".format(data_dict[key]))
+
         if self.is_table_context:
             pk_vector = [data_dict[k] for k in self.schema["primary_keys"]]
             if pk_vector in self.primary_keys:
@@ -169,12 +172,16 @@ class SimpleSchemaValidator(object):
         list_of_dicts_result=[]
         with self.table_context():
             for i,rowdict in enumerate(list_of_dicts):
-                _logger.debug("processing row {}".format(i))
-                processed_rowdict = self.validate(rowdict, post_process=post_process)
-                if post_process:
-                    if "fill_grouped" in self.schema:
-                        self.fill_grouped(processed_rowdict)
-                list_of_dicts_result.append(processed_rowdict)
+                try:
+                    _logger.debug("processing row {}".format(i+1))
+                    processed_rowdict = self.validate(rowdict, post_process=post_process)
+                    if post_process:
+                        if "fill_grouped" in self.schema:
+                            self.fill_grouped(processed_rowdict)
+                    list_of_dicts_result.append(processed_rowdict)
+                except Exception as e:
+                    e.args = tuple(list(e.args) + ["table row {}, row_value {}".format(i, rowdict)])
+                    raise
 
         return list_of_dicts_result
 

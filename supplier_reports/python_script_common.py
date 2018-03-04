@@ -70,15 +70,16 @@ def set_logging(app_name=None, app_path=None, verbose=0, file_handler=True):
         filename_no_ext = os.path.splitext(caller_filename)[0]
         app_path = caller_dirname if app_path is None else app_path
         app_name = filename_no_ext if app_name is None else app_name
-        log_file_name = os.path.join(app_path, app_name + '.log')
+        log_file_path = os.path.join(app_path, app_name + '.log')
 
         if console_level == logging.TRACE:
             _logger.warn("#### TRACE is on ####")
             file_handler_level = logging.TRACE
         else:
             file_handler_level = logging.DEBUG
-        add_handler(root_logger, logging.FileHandler(log_file_name), level=file_handler_level)
-        _logger.debug("log path: {}".format(log_file_name))
+        add_handler(root_logger, logging.FileHandler(log_file_path), level=file_handler_level)
+        _logger.debug("log path: {}".format(log_file_path))
+        return log_file_path
 
 
 ##################################################

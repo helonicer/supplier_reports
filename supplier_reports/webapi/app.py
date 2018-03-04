@@ -1,4 +1,4 @@
-from flask import ( Flask, request, redirect, url_for,flash ,request, send_from_directory)
+from flask import ( Flask, request, redirect, url_for,flash ,request, send_from_directory, send_file)
 from werkzeug.utils import secure_filename
 import os
 from supplier_reports import conf as g
@@ -146,6 +146,11 @@ def ack():
 @app.route('/reports/<path:path>')
 def send_reports(path):
     return send_from_directory(g.config.root.reports_dir, path)
+
+
+@app.route('/debug.log')
+def send_log():
+    return send_file(g.config.root.log_file_path, mimetype="text/plain; charset=utf-8")
 
 
 def main():
