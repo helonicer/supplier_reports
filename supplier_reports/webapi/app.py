@@ -1,13 +1,16 @@
-from flask import ( Flask, request, redirect, url_for,flash ,request, send_from_directory, send_file)
+from flask import ( Flask, request, redirect, url_for,flash ,
+                    request, send_from_directory, send_file, Response, session)
 from werkzeug.utils import secure_filename
 import os
 from supplier_reports import conf as g
+from supplier_reports.python_script_common import full_context_error_logger
 from supplier_reports.gen_reports import gen_reports
 import flask
 from werkzeug.debug import DebuggedApplication
-
+from functools import wraps
 
 app = Flask("webapi", static_url_path='')
+
 
 if g.config.root.debug is True:
     app.debug = True
@@ -52,6 +55,12 @@ def render_html_page(msgs, headers=None):
     return HtmlPage(msgs, headers=headers).render()
 
 
+def render_text_page(body):
+    r=Response(body, mimetype='text/plain')
+    r.headers["Content-Type"] = "text/plain; charset=utf-8"
+    return r
+
+
 def csv_to_html_table(file_path, headers=None, delimiter=","):
     with open(file_path) as f:
         content = f.readlines()
@@ -77,9 +86,24 @@ def csv_to_html_file(file_path):
     with open(file_path + ".html","wt") as fp:
         fp.write(html_page)
 
+
+def render_full_context_error(view_func):
+    @wraps(view_func)
+    def wrapper(*args, **kwargs):
+        with full_context_error_logger() as result:
+            view_content = view_func(*args, **kwargs)
+        if result["error_log"]:
+            return render_text_page(result["error_log"])
+        else:
+            return view_content
+    return wrapper
+
+
 @app.route('/', methods=['GET', 'POST'])
+@render_full_context_error
 def upload_file():
     if request.method == 'POST':
+        msgs = ["<h3>generated reports</h3><br>"]
         # check if the post request has the file part
         if 'file' not in request.files:
             flash('No file part')
@@ -97,7 +121,6 @@ def upload_file():
             file_path = os.path.join(g.config.root.reports_dir, uploadfilename)
             file.save(file_path)
             csv_reports = gen_reports(file_path)
-            msgs = ["<h3>generated reports</h3><br>"]
             for report in csv_reports:
                 if report is not None:
                     report_file_name=report.get_report_file_name()
@@ -106,34 +129,30 @@ def upload_file():
                     msgs.append('{}: '
                                 '<a href="/reports/{}.html">view</a>, '
                                 '<a href="/reports/{}">download</a><br>'.format(report_file_name, report_file_name, report_file_name))
-
-
             return render_html_page(msgs)
-            #return redirect(url_for('ack_upload',filename=filename))
-
-
-
-    return '''
-    <!doctype html>
-    <html>
-    <head>
-    </head>
-    <body>
-    <title>Upload new File</title>
-    <h1>Upload new File</h1>
-    <form method=post enctype=multipart/form-data>
-      <p><input type=file name=file>
-         <input type=submit value=Upload>
-    </form>
-    <!--
-    <h2>Examples of working reports</h2>
-    <ol>
-        <li><a href="/reports/orders_export_02_14_2018_up.xlsx">orders_export_02_14_2018_up.xlsx</a></li>
-        <li><a href="/reports/orders_export_test.xlsx">orders_export_test.xlsx</a></li>
-    </ol>-->
-    </body>
-    </html>
-    '''
+            # return redirect(url_for('ack_upload',filename=filename))
+    else:
+        return '''
+        <!doctype html>
+        <html>
+        <head>
+        </head>
+        <body>
+        <title>Upload new File</title>
+        <h1>Upload new File</h1>
+        <form method=post enctype=multipart/form-data>
+          <p><input type=file name=file>
+             <input type=submit value=Upload>
+        </form>
+        <!--
+        <h2>Examples of working reports</h2>
+        <ol>
+            <li><a href="/reports/orders_export_02_14_2018_up.xlsx">orders_export_02_14_2018_up.xlsx</a></li>
+            <li><a href="/reports/orders_export_test.xlsx">orders_export_test.xlsx</a></li>
+        </ol>-->
+        </body>
+        </html>
+        '''
 
 @app.route('/ack_uploaded')
 def ack():

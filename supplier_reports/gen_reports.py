@@ -1,20 +1,16 @@
-import os,sys
-from supplier_reports.python_script_common import set_logging
-from . import conf as g
 import logging
 from openpyxl import load_workbook
 import copy
 import contextlib
 import os
-#import csv
 import unicodecsv as csv
-import traceback, pdb
 from werkzeug.datastructures import FileStorage
-
-
+import functools,StringIO
+from collections import OrderedDict
 #####################################################################
 #Globals
 _logger = logging.getLogger(__name__)
+
 
 #####################################################################
 # move to env utiliy funcs
@@ -34,9 +30,7 @@ def read_xlsx_sheet(file_path, sheet_name):
 
     data = []
     for row in range(2, row_count+1):
-        rdict = {}
-        for col in range(1, column_count+1):
-            rdict[header[col-1]]=sheet.cell(row, col).value
+        rdict = OrderedDict([(header[col-1],sheet.cell(row, col).value) for col in range(1, column_count+1)])
         data.append(rdict)
     return data
 
@@ -172,15 +166,16 @@ class SimpleSchemaValidator(object):
         list_of_dicts_result=[]
         with self.table_context():
             for i,rowdict in enumerate(list_of_dicts):
+                row=i+1
                 try:
-                    _logger.debug("processing row {}".format(i+1))
+                    _logger.debug("processing row {}".format(row))
                     processed_rowdict = self.validate(rowdict, post_process=post_process)
                     if post_process:
                         if "fill_grouped" in self.schema:
                             self.fill_grouped(processed_rowdict)
                     list_of_dicts_result.append(processed_rowdict)
                 except Exception as e:
-                    e.args = tuple(list(e.args) + ["table row {}, row_value {}".format(i, rowdict)])
+                    e.args = tuple(list(e.args) + ["error in row {}, {}".format(row, rowdict)])
                     raise
 
         return list_of_dicts_result
@@ -301,10 +296,6 @@ report_schema_mr_zhen = SchemaDescription({
 
 
 #####################################################################
-
-import functools,StringIO
-
-
 
 
 def import_product_list(file_path):

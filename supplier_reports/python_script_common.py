@@ -8,6 +8,7 @@ import inspect
 import traceback, pdb
 import functools
 import inspect
+from contextlib import contextmanager
 
 try:
     from urlparse import urlparse
@@ -58,6 +59,7 @@ def get_console_level(verbose):
         console_level = logging.TRACE
     return console_level
 
+
 def set_logging(app_name=None, app_path=None, verbose=0, file_handler=True):
     root_logger=logging.getLogger()
     root_logger.setLevel(logging.TRACE) #forcing the lowest effective level from WARN
@@ -81,6 +83,35 @@ def set_logging(app_name=None, app_path=None, verbose=0, file_handler=True):
         _logger.debug("log path: {}".format(log_file_path))
         return log_file_path
 
+
+@contextmanager
+def full_context_error_logger():
+    """ capture all log specific to a context
+    :return:
+    """
+    from logging.handlers import MemoryHandler
+    from StringIO import StringIO
+    buffer = StringIO()
+    logLevel = logging.DEBUG
+    streamhandler = logging.StreamHandler(buffer)
+    streamhandler.setLevel(logLevel)
+    streamhandler.setFormatter(formatter)
+    memory_handler = MemoryHandler(capacity=1024*100, flushLevel=logging.ERROR, target=streamhandler)
+    memory_handler.setLevel(logLevel)
+    memory_handler.setFormatter(formatter)
+    rootLogger = logging.getLogger()
+    rootLogger.addHandler(memory_handler)
+    result = {"error_log": None}
+    try:
+        yield result
+    except:
+        memory_handler.flush()
+        buffer.flush()
+        result["error_log"] = buffer.getvalue()+traceback.format_exc()
+    finally:
+        rootLogger.removeHandler(memory_handler)
+        memory_handler.close()
+        buffer.close()
 
 ##################################################
 # other
