@@ -8,7 +8,7 @@ import contextlib
 import os
 import csv
 import traceback, pdb
-from supplier_reports.gen_reports import gen_reports
+from supplier_reports import gen_reports
 from supplier_reports.webapi import app
 import StringIO
 from werkzeug.datastructures import FileStorage
@@ -57,7 +57,7 @@ def main():
             fo = StringIO.StringIO()
             fo.write(open(g.config.root.options.file).read())
             fs = FileStorage(fo, filename=get_filename_from_path(g.config.root.options.file))
-            for report in gen_reports(fs):
+            for report in gen_reports.gen_reports(fs):
                 if report:
                     report.save(g.config.root.reports_dir)
         elif g.config.root.options.webapi:

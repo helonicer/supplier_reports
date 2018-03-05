@@ -20,6 +20,8 @@ setup(
     packages=find_packages(exclude=("tests",)),
     include_package_data=True,
     install_requires=_INSTALL_REQUIRES,
+    setup_requires=['pytest-runner'],
+    tests_require=['pytest'],
     scripts=[
     ],
     entry_points={'console_scripts':['gen_reports=supplier_reports:main']

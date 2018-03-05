@@ -8,6 +8,10 @@ from supplier_reports import gen_reports
 import tempfile,os
 import logging
 import copy
+import contextlib
+import shutil
+import atexit
+
 logging.basicConfig(level=logging.DEBUG)
 _logger = logging.getLogger()
 
@@ -21,6 +25,16 @@ def create_xlsx_sheet(filename, title, data):
         for j, value in enumerate(rowdict.values()):
             ws.cell(column=j+1, row=i+2, value=value)
     wb.save(filename=filename)
+    return wb
+
+
+@contextlib.contextmanager
+def tempdir_context():
+    dir_path = tempfile.mkdtemp()
+    try:
+        yield dir_path
+    finally:
+        shutil.rmtree(dir_path)
 
 
 def test_read_xlsx_sheet():
@@ -28,40 +42,73 @@ def test_read_xlsx_sheet():
     for x in range(5):
         data.append(dict(name=x,age=x,sex=x))
     xls_file_name="test_sheet.xlsx"
-    with tempfile.TemporaryDirectory() as tmpdirname:
+    with tempdir_context() as tmpdirname:
         file_path=os.path.join(tmpdirname,xls_file_name)
-        create_xlsx_sheet(file_path, "test1", data)
+        wb = create_xlsx_sheet(file_path, "test1", data)
         res=read_xlsx_sheet(file_path, "test1")
         assert data == res
+        wb.close()
 
 
-def test_fill_grouped_positive():
-    #what is a negative schenario
-
+@pytest.fixture
+def valid_grouped_first_line():
     schema = {'fill_grouped': {'on': 'ord_num',
                                 'by': ['user_name','user_phone']
                             }
             }
-
-    valid_data = [{'ord_num': 1, 'user_name': 1, 'user_phone': 1, 'supplier':1},
+    input_table = [{'ord_num': 1, 'user_name': 1, 'user_phone': 1, 'supplier':1},
                   {'ord_num': 1, 'user_name': None, 'user_phone': None, 'supplier':2},
                   {'ord_num': 2, 'user_name': 2, 'user_phone': 2, 'supplier':3},
                   {'ord_num': 2, 'user_name': None, 'user_phone': None, 'supplier':4}]
 
-    invalid_data = copy.copy(valid_data)
-    invalid_data.append(valid_data[0])
-
-    _logger.info("test for valid table")
-    sv = SimpleSchemaValidator(schema)
-
-    grouped_table = sv.validate_table(valid_data, post_process=True)
     expected_table = [{'ord_num': 1, 'user_name': 1, 'user_phone': 1, 'supplier':1},
                   {'ord_num': 1, 'user_name': 1, 'user_phone': 1, 'supplier':2},
                   {'ord_num': 2, 'user_name': 2, 'user_phone': 2, 'supplier':3},
                   {'ord_num': 2, 'user_name': 2, 'user_phone': 2, 'supplier':4}]
+
+    return schema, input_table, expected_table
+
+
+def test_grouping_first_line(valid_grouped_first_line):
+    schema, input_table, expected_table = valid_grouped_first_line
+
+    _logger.info("test for grouping when grouped data is in the first line of the group")
+    sv = SimpleSchemaValidator(schema)
+    grouped_table = sv.validate_table(input_table, post_process=True)
     assert grouped_table == expected_table
 
 
+def test_grouping_error(valid_grouped_first_line):
+    schema, input_table, expected_table = valid_grouped_first_line
+    invalid_data = copy.copy(input_table)
+    invalid_data.append(input_table[0])
+
+    _logger.info("test for repeating row table, expected to fail")
+    sv = SimpleSchemaValidator(schema)
+
+    with pytest.raises(GroupingError) as e:
+        sv.validate_table(invalid_data, post_process=True)
+
+
+def test_grouping_last_line(valid_grouped_first_line):
+    """ reversing row 1&2, 3&4 so that grouping data is always on the last line
+
+    :param valid_grouped_first_line:
+    :return:
+    """
+    schema, valid_data, expected_table = valid_grouped_first_line
+
+    line1,line2,line3,line4 = valid_data
+    input_table_grouping_data_last_line = [line2, line1, line4, line3]
+
+    line1_exp, line2_exp, line3_exp, line4_exp = expected_table
+    expected_table_new=[line2_exp, line1_exp,line4_exp,line3_exp]
+
+    _logger.info("test for grouping when grouped data is in the last line of the group")
+    sv = SimpleSchemaValidator(schema)
+
+    grouped_table = sv.validate_table(input_table_grouping_data_last_line, post_process=True)
+    assert grouped_table == expected_table_new
 
 
 def test_fill_missing():
@@ -142,7 +189,7 @@ def test_not_empty():
 
 
 @pytest.fixture
-def valid_data():
+def valid_export_data():
     valid_data = [{'a': 1, 'b': 1, 'c': 1},
                   {'a': 1, 'b': None, 'c': None},
                   {'a': 2, 'b': 2, 'c': 2},
@@ -150,20 +197,20 @@ def valid_data():
     return valid_data
 
 
-def test_export_local_match(valid_data):
+def test_export_local_match(valid_export_data):
     report_schema = {
         'match_row_key': 'a',
         'match_row_value': 1,
         'report_fields': ["a","b"]
     }
     sv = SimpleSchemaValidator(report_schema)
-    report = sv.export_fields(valid_data)
+    report = sv.export_fields(valid_export_data)
     expected = [{'a': 1, 'b': 1},
                   {'a': 1, 'b': None, }]
-    assert report == expected, f"report:\n'{report}' does not match expected:\n'{expected}'"
+    assert report == expected, "report:\n'{}' does not match expected:\n'{}'".format(report, expected)
 
 
-def test_export_local_no_match_key(valid_data):
+def test_export_local_no_match_key(valid_export_data):
     _logger.info("test no local match key no lookup")
     report_schema = {
         'match_row_key': 'd',
@@ -171,11 +218,11 @@ def test_export_local_no_match_key(valid_data):
         'report_fields': ["a","b"]
     }
     sv = SimpleSchemaValidator(report_schema)
-    report = sv.export_fields(valid_data)
+    report = sv.export_fields(valid_export_data)
     assert report == [], "we should have an empty report"
 
 
-def test_export_local_no_match_value(valid_data):
+def test_export_local_no_match_value(valid_export_data):
     _logger.info("test no local match key no lookup")
     report_schema = {
         'match_row_key': 'a',
@@ -183,11 +230,11 @@ def test_export_local_no_match_value(valid_data):
         'report_fields': ["a", "b"]
     }
     sv = SimpleSchemaValidator(report_schema)
-    report = sv.export_fields(valid_data)
+    report = sv.export_fields(valid_export_data)
     assert report == [], "we should have an empty report"
 
 
-def test_export_with_lookup_match(valid_data):
+def test_export_with_lookup_match(valid_export_data):
     _logger.info("test no local match key no lookup")
     report_schema = {
         'match_row_key': 'a',
@@ -203,13 +250,13 @@ def test_export_with_lookup_match(valid_data):
 
     sv = SimpleSchemaValidator(report_schema)
     lookupd = gen_reports.LookupDict(lookup_lod, ['a'])
-    report = sv.export_fields(valid_data, lookupd)
+    report = sv.export_fields(valid_export_data, lookupd)
     expected = [{'a': 1, 'b': 1, 'e': 2},
                   {'a': 1, 'b': None, 'e': 2}]
-    assert report == expected, f"report:\n'{report}' does not match expected:\n'{expected}'"
+    assert report == expected, "report:\n'{}' does not match expected:\n'{}'".format(report,expected)
 
 
-def test_export_with_lookup_match_error(valid_data):
+def test_export_with_lookup_match_error(valid_export_data):
     _logger.info("test no local match key no lookup")
     report_schema = {
         'match_row_key': 'a',
@@ -225,4 +272,4 @@ def test_export_with_lookup_match_error(valid_data):
     sv = SimpleSchemaValidator(report_schema)
     lookupd = gen_reports.LookupDict(lookup_lod, ['a'])
     with pytest.raises(gen_reports.LookupKeyError):
-        sv.export_fields(valid_data, lookupd)
+        sv.export_fields(valid_export_data, lookupd)

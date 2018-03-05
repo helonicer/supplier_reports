@@ -113,6 +113,15 @@ def full_context_error_logger():
         memory_handler.close()
         buffer.close()
 
+
+@contextmanager
+def exception_context_extra_info(*args):
+    try:
+        yield
+    except Exception as e:
+        e.args = tuple(list(e.args) + list(args))
+        raise
+
 ##################################################
 # other
 ##################################################

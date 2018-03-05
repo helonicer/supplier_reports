@@ -7,6 +7,8 @@ import unicodecsv as csv
 from werkzeug.datastructures import FileStorage
 import functools,StringIO
 from collections import OrderedDict
+from python_script_common import exception_context_extra_info
+
 #####################################################################
 #Globals
 _logger = logging.getLogger(__name__)
@@ -35,7 +37,8 @@ def read_xlsx_sheet(file_path, sheet_name):
     return data
 
 #####################################################################
-# general schema validators
+# errors
+
 
 class EmptyReportError(Exception):
     pass
@@ -44,8 +47,10 @@ class EmptyReportError(Exception):
 class LookupKeyError(Exception):
     pass
 
+
 class PrimaryKeyError(Exception):
     pass
+
 
 class ParsingError(Exception):
     pass
@@ -54,8 +59,12 @@ class ParsingError(Exception):
 class GroupingError(Exception):
     pass
 
+
 class EmptyValueError(Exception):
     pass
+
+#####################################################################
+# general schema validators
 
 
 class LookupDict(dict):
@@ -81,13 +90,12 @@ class LookupDict(dict):
             raise LookupKeyError("unable to lookup key '{}'".format(idx))
 
 
-
-
 class SimpleSchemaValidator(object):
     def __init__(self, schema):
         self.schema = schema
         self.is_table_context = False
-        self.grouped = {}
+        self.grouped_info = {}
+        self.grouped_rows=[]
         self._current_group_context = None
         self.primary_keys = []
 
@@ -115,8 +123,9 @@ class SimpleSchemaValidator(object):
                 raise PrimaryKeyError("key_not_in_data: {}".format(key))
             if not data_dict[key]:
                 raise PrimaryKeyError("key_should_not_be_empty: {}".format(data_dict[key]))
-            if data_dict[key] != data_dict[key].rstrip():
-                raise PrimaryKeyError("key_should_not_end_with_hidden_chars: {}".format(data_dict[key]))
+            if isinstance(data_dict[key], basestring) and data_dict[key] != data_dict[key].rstrip():
+                data_dict[key]=data_dict[key].rstrip()
+                #raise PrimaryKeyError("key_should_not_end_with_hidden_chars: {}".format(data_dict[key]))
 
         if self.is_table_context:
             pk_vector = [data_dict[k] for k in self.schema["primary_keys"]]
@@ -137,47 +146,62 @@ class SimpleSchemaValidator(object):
                     pass
         return new_data
 
-    def fill_grouped(self, rowdict):
+    def populate_cached_rows_with_group_data(self):
+        for rowd in self.grouped_rows:
+            rowd.update(self.grouped_info[self._current_group_context])
+
+    def generate_grouped_data(self, rowdict):
+        """ while in grouping context update grouped info, retaining grouping rows
+            after grouping context changes, update all cached rows
+        :param rowdict:
+        :return:
+        """
+        #import pdb;pdb.set_trace()
         grouped_field_name = self.schema["fill_grouped"]["on"]
         group_key = rowdict[grouped_field_name]
         by_field_names = self.schema["fill_grouped"]["by"]
 
-        if self._current_group_context == group_key:
-            rowdict.update(self.grouped[group_key])
+        if self._current_group_context == group_key: #inside grouping context
+            for k in by_field_names:
+                if rowdict[k]:
+                    self.grouped_info[group_key][k]=rowdict[k]
+
+            #self.grouped_info[group_key] = {k: rowdict[k] for k in by_field_names if rowdict[k] is not None}
+            self.grouped_rows.append(rowdict)
         else:
-            if group_key in self.grouped:
+            if group_key in self.grouped_info:
                 raise GroupingError("{} was already grouped once".format(group_key))
-            else:
-                self.grouped[group_key] = {k: rowdict[k] for k in by_field_names}
+            else: #grouping context changes
+                self.populate_cached_rows_with_group_data()
                 self._current_group_context = group_key
+                self.grouped_info[group_key] = {k: rowdict[k] for k in by_field_names if rowdict[k] is not None}
+                self.grouped_rows=[rowdict]
 
     @contextlib.contextmanager
     def table_context(self):
         try:
-            self.grouped = {}
+            self.grouped_info = {}
             self.is_table_context = True
             self._current_group_context = None
             self.primary_keys = []
             yield
         finally:
+            if "fill_grouped" in self.schema:
+                self.populate_cached_rows_with_group_data()
             self.is_table_context = False
 
     def validate_table(self, list_of_dicts, post_process=False):
         list_of_dicts_result=[]
         with self.table_context():
             for i,rowdict in enumerate(list_of_dicts):
-                row=i+1
-                try:
+                row = i + 1
+                with exception_context_extra_info("error in row {}".format(row), "row=<{}>".format(rowdict)):
                     _logger.debug("processing row {}".format(row))
                     processed_rowdict = self.validate(rowdict, post_process=post_process)
                     if post_process:
                         if "fill_grouped" in self.schema:
-                            self.fill_grouped(processed_rowdict)
+                            self.generate_grouped_data(processed_rowdict)
                     list_of_dicts_result.append(processed_rowdict)
-                except Exception as e:
-                    e.args = tuple(list(e.args) + ["error in row {}, {}".format(row, rowdict)])
-                    raise
-
         return list_of_dicts_result
 
     def export_fields(self, list_of_dicts, lookup_dict=None):
@@ -198,19 +222,20 @@ class SimpleSchemaValidator(object):
         match_row_key = self.schema["match_row_key"]
         match_row_value = self.schema["match_row_value"]
         for i, rowdict in enumerate(list_of_dicts):
-            _logger.debug("processing row {}".format(i))
-            if match_row_key in rowdict:
-                if match_row_value == rowdict[match_row_key]:
-                    # initiate report with local fields
-                    report_row={k:v for k,v in rowdict.items() if k in local_fields}
-                    # add empty fields
-                    report_row.update({k:None for k in new_fields})
-                    if lookup_dict:
-                        # add lookup fields
-                        match = lookup_dict.get_matching_dict_for(rowdict)
-                        report_row.update({k:match[k] for k in expected_looked_up_fields})
+            _logger.debug("processing row {}".format(i+1))
+            with exception_context_extra_info("error in row {}".format(i+1)):
+                if match_row_key in rowdict:
+                    if match_row_value == rowdict[match_row_key]:
+                        # initiate report with local fields
+                        report_row={k:v for k,v in rowdict.items() if k in local_fields}
+                        # add empty fields
+                        report_row.update({k:None for k in new_fields})
+                        if lookup_dict:
+                            # add lookup fields
+                            match = lookup_dict.get_matching_dict_for(rowdict)
+                            report_row.update({k:match[k] for k in expected_looked_up_fields})
 
-                    report_table.append(report_row)
+                        report_table.append(report_row)
 
         if not report_table:
             _logger.warning("No data for report:'{}'".format(self.schema))
@@ -272,7 +297,7 @@ report_schema_mr_art_painting = SchemaDescription({
     "description":"report schema Mr art Painting store",
     'match_row_key':'Vendor',
     'match_row_value':"Mr Art Painting store",
-    'report_fields':  ["Name", "Lineitem quantity", "Product link", "Size",
+    'report_fields':  ["Name", "Lineitem name", "Variant", "Lineitem quantity", "Product link", "Size",
                 "Frame option", "Shipping Name", "Shipping Street", "Shipping Address1",
                 "Shipping Address2", "Shipping Company", "Shipping City", "Shipping Zip",
                 "Shipping Province", "Shipping Country", "Shipping Phone"]
@@ -284,7 +309,7 @@ report_schema_mr_zhen = SchemaDescription({
     "description":"report schema mr Zhen",
     'match_row_key': 'Vendor',
     'match_row_value': "Zhen",
-    'report_fields':  ["Name", "Created at", "Financial status", "Fulfillment Status", "Internal note", "Marketplace",
+    'report_fields':  ["Name", "Lineitem name", "Created at", "Financial status", "Fulfillment Status", "Internal note", "Marketplace",
                 "Supplier", "Product link", "Lineitem sku", "Variant", "Size", "Color", "Lineitem quantity",
                 "Price", "Shipping Name", "Shipping Street", "Shipping Address1","Tracking Number",
                 "Shipping Address2", "Shipping Company", "Shipping City", "Shipping Zip", "Shipping Province", 
