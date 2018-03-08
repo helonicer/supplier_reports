@@ -13,6 +13,22 @@ from python_script_common import exception_context_extra_info
 #Globals
 _logger = logging.getLogger(__name__)
 
+#####################################################################
+# move to env utiliy funcs
+
+from difflib import SequenceMatcher
+
+
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
+
+
+def get_similar_strings(str1, list_of_strings, amount=3):
+    similarity = map(functools.partial(similar,str1), list_of_strings)
+    sorted_list_of_tuples = sorted(zip(similarity, list_of_strings), key=lambda item:item[0])
+    return [x[1] for x in sorted_list_of_tuples[-amount:]]
+
+
 
 #####################################################################
 # move to env utiliy funcs
@@ -83,11 +99,12 @@ class LookupDict(dict):
         return index_string
 
     def get_matching_dict_for(self, rdict):
+        idx = self.create_index_string(rdict)
         try:
-            idx = self.create_index_string(rdict)
             return self[self.create_index_string(rdict)]
         except KeyError as e:
-            raise LookupKeyError("unable to lookup key '{}'".format(idx))
+            raise LookupKeyError("unable to lookup key '{}', the most similar (but different) keys are: {}".format(idx,
+                                                                            get_similar_strings(idx, self.keys())))
 
 
 class SimpleSchemaValidator(object):
