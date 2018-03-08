@@ -26,8 +26,17 @@ def similar(a, b):
 def get_similar_strings(str1, list_of_strings, amount=3):
     similarity = map(functools.partial(similar,str1), list_of_strings)
     sorted_list_of_tuples = sorted(zip(similarity, list_of_strings), key=lambda item:item[0])
-    return [x[1] for x in sorted_list_of_tuples[-amount:]]
+    return [(x[1],lcs(x[1],str1)) for x in sorted_list_of_tuples[-amount:]]
 
+
+def lcs(xstr, ystr):
+    if not xstr or not ystr:
+        return ""
+    x, xs, y, ys = xstr[0], xstr[1:], ystr[0], ystr[1:]
+    if x == y:
+        return x + lcs(xs, ys)
+    else:
+        return max(lcs(xstr, ys), lcs(xs, ystr), key=len)
 
 
 #####################################################################
@@ -103,8 +112,12 @@ class LookupDict(dict):
         try:
             return self[self.create_index_string(rdict)]
         except KeyError as e:
-            raise LookupKeyError("unable to lookup key '{}', the most similar (but different) keys are: {}".format(idx,
-                                                                            get_similar_strings(idx, self.keys())))
+            similar=get_similar_strings(idx, self.keys())
+            s=[]
+            for x in similar:
+                s.append(x[0][:len(x[1])]+"<-similar_to_here,diffrent->"+x[0][len(x[1]):])
+            raise LookupKeyError("unable to lookup key '{}', the similar (but different) keys are: {}".format(idx,s))
+
 
 
 class SimpleSchemaValidator(object):
